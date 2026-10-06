@@ -1,21 +1,29 @@
 # Diff Viewer
 
-Compare two files or functions from a local PHP project without copying their contents by hand. Select a project folder, enter the two targets, and see their differences in an editable Monaco diff editor.
-## Run Locally
+Compare two files or functions from a local PHP project without copying their contents by hand. Right-click files in the VS Code Explorer (or enter targets by hand) and see their differences in an editable Monaco diff editor.
+## Install And Run
 
-Requires Node.js 22.12 or newer, npm, and Chrome or Edge for local folder access.
+This is a VS Code extension (VS Code 1.90 or newer). Requires Node.js 22.12 or newer and npm to build.
 ```sh
 npm install
-npm run dev
+npm run package   # builds and creates diff-viewer-<version>.vsix
+code --install-extension diff-viewer-0.1.0.vsix
 ```
-Open the local URL printed in the terminal. If the default port is busy, the server chooses another port.
+To debug, open this folder in VS Code and press F5 (Run Extension). `npm run dev` rebuilds the webview on change; rerun `npm run build:extension` after changing `extension/`.
+
 ## Compare Code
 
-1. Click **Select Project Folder**, choose your PHP project, and allow read access.
-2. Choose **File** or **Function** from the shared **Type** selector.
-3. Enter the targets in **Old** and **New**.
-4. Click **Compare**.
-Use **Inline view** to switch between a combined diff and side-by-side editors. Both editor inputs are editable, and differences update as you type. Edits affect only the comparison, not the files on disk.
+Open a workspace with PHP files, then use any of:
+
+- **Explorer, right-click a `.php` file** → **Diff Viewer: Select as Old**, then right-click another file → **Diff Viewer: Compare with Selected Old**.
+- **Explorer, select two `.php` files**, right-click → **Diff Viewer: Compare Selected Files**.
+- **Editor, right-click inside a PHP function** → **Use Function at Cursor as Old** / **as New**. The panel compares as soon as both sides are set.
+- **Command Palette** → **Diff Viewer: Open**, then fill the fields manually:
+  1. Choose **File** or **Function** from the shared **Type** selector.
+  2. Enter the targets in **Old** and **New**.
+  3. Click **Compare**.
+
+Use **Inline view** to switch between a combined diff and side-by-side editors. Both editor inputs are editable, and differences update as you type. Edits affect only the comparison, not the files on disk. Unsaved changes in open editors are what gets compared.
 ### Files
 
 Enter a filename with or without `.php`, or a project-relative path:
@@ -45,13 +53,14 @@ CarryPinSyncService::getDiff -> WupexSyncService::getDiff
 The left target goes into **Old** and the right target into **New**, regardless of which field receives the paste. Surrounding whitespace is trimmed.
 ## Local File Access
 
-The browser reads the selected folder directly with your permission. Chrome's "view and copy files" prompt describes that permission; allowing it does not copy the project to disk or upload it.
-Selecting a folder lists PHP filenames and file handles, without reading their contents. Comparing files reads the selected files. Searching for a function can read many PHP files until it finds a match; `File::function` reads only the resolved file.
-The tool does not save project selections, input values, or edits between sessions. Monaco may download its editor assets from a CDN, so local file access does not mean the application is fully offline.
+The extension reads workspace files through the VS Code API. Nothing is uploaded, and Monaco is bundled, so the panel works offline. Listing files does not read their contents; comparing files reads the selected ones. Searching for a function can read many PHP files until it finds a match; `File::function` reads only the resolved file.
+The tool does not save input values or edits between sessions.
+
 ## Current Limits
 
 - Project scanning supports `.php` files only. The language selector changes highlighting, not which files are scanned.
 - Scanning skips `node_modules`, `vendor`, `.git`, `dist`, and `build`. Inaccessible directories may be skipped.
 - Function extraction uses simple name matching and brace counting, not a full PHP parser. Braces in strings or comments can produce incomplete snippets; multiple methods with the same name within one file are not distinguished.
-- Folder access requires a supported browser and a secure context such as localhost. WSL folders must be accessible through the browser's folder picker.
-- Files are not watched for changes. Reselect the folder to refresh the file list, and click **Compare** again to reload contents.
+- Only files inside open workspace folders can be compared.
+- The standalone browser app (`npm run dev` in a browser) is no longer supported.
+- Files are not watched for changes. The file list refreshes on each comparison; click **Compare** again to reload contents.
