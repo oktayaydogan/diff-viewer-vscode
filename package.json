@@ -1,6 +1,6 @@
 {
   "name": "diff-viewer",
-  "displayName": "Diff Viewer",
+  "displayName": "Diff Viewer for PHP",
   "description": "Compare PHP files or functions from your workspace in an editable Monaco diff editor.",
   "publisher": "oktayaydoan",
   "license": "MIT",
