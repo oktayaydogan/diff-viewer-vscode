@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Marketplace page rewritten for users; credit to the original diff-viewer by Nurullah Akın.
+- Display name changed to "Diff Viewer for PHP".
+
 ## 0.1.0
 
 - First release as a VS Code extension.
