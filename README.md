@@ -1,5 +1,7 @@
 # Diff Viewer
 
+> VS Code extension based on [nurullahakin/diff-viewer](https://github.com/nurullahakin/diff-viewer) by Nurullah Akın, who created the original diff viewer web app. This repository adapts it to run inside VS Code.
+
 Compare two files or functions from a local PHP project without copying their contents by hand. Right-click files in the VS Code Explorer (or enter targets by hand) and see their differences in an editable Monaco diff editor.
 ## Install And Run
 
@@ -64,3 +66,7 @@ The tool does not save input values or edits between sessions.
 - Only files inside open workspace folders can be compared.
 - The standalone browser app (`npm run dev` in a browser) is no longer supported.
 - Files are not watched for changes. The file list refreshes on each comparison; click **Compare** again to reload contents.
+
+## Credits
+
+The diff viewer itself (Monaco diff editor, file and function lookup, `A -> B` paste format, diff colors) comes from [nurullahakin/diff-viewer](https://github.com/nurullahakin/diff-viewer) by Nurullah Akın. This extension wraps it in a VS Code webview and adds the extension host, context menus and theme integration. See [LICENSE](LICENSE) for copyright.
