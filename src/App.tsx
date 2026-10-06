@@ -1,14 +1,9 @@
-import { useRef, useState, type ClipboardEvent } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { DiffEditor, type MonacoDiffEditor } from '@monaco-editor/react'
-import {
-  findFileByPath,
-  isDirectoryPickerSupported,
-  pickProjectDirectory,
-  scanPhpFiles,
-  type ScannedFile,
-} from './lib/projectScan'
+import { findFileByPath, scanPhpFiles, type ScannedFile } from './lib/projectScan'
+import { onPrefill, signalReady, type PrefillMessage } from './lib/host'
 import { findFunctionInFiles } from './lib/phpExtract'
-import { hsla } from './lib/color'
+import { THEME_NAME, applyTheme, editorFont, watchTheme } from './lib/vscodeTheme'
 import './App.css'
 
 const LANGUAGES = [
@@ -49,9 +44,8 @@ function App() {
   const [inline, setInline] = useState(false)
   const [language, setLanguage] = useState('php')
 
-  const [projectName, setProjectName] = useState<string | null>(null)
   const [projectFiles, setProjectFiles] = useState<ScannedFile[]>([])
-  const [scanning, setScanning] = useState(false)
+  const [scanning, setScanning] = useState(true)
   const [finding, setFinding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,50 +62,52 @@ function App() {
     setNewValue(parts[1])
   }
 
-  async function handleSelectProject() {
-    setError(null)
+  async function refreshFiles() {
+    setScanning(true)
     try {
-      const dirHandle = await pickProjectDirectory()
-      setProjectName(dirHandle.name)
-      setScanning(true)
-      const files = await scanPhpFiles(dirHandle)
+      const files = await scanPhpFiles()
       setProjectFiles(files)
-      setLanguage('php')
+      return files
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setError(err instanceof Error ? err.message : 'Failed to select project folder.')
+      setError(err instanceof Error ? err.message : 'Failed to list workspace files.')
+      return []
     } finally {
       setScanning(false)
     }
   }
 
-  async function resolveSymbol(value: string) {
+  async function resolveSymbol(files: ScannedFile[], type: SymbolType, value: string) {
     if (!value.trim()) return null
-    return symbolType === 'file'
-      ? findFileByPath(projectFiles, value)
-      : findFunctionInFiles(projectFiles, value, language === 'php')
+    return type === 'file'
+      ? findFileByPath(files, value)
+      : findFunctionInFiles(files, value, language === 'php')
   }
 
-  async function handleFind() {
+  async function handleFind(
+    files = projectFiles,
+    type = symbolType,
+    oldValue = origValue,
+    nextValue = newValue,
+  ) {
     setError(null)
-    if (projectFiles.length === 0) {
-      setError('Select a project folder first.')
+    if (files.length === 0) {
+      setError('No PHP files found in the workspace.')
       return
     }
 
     setFinding(true)
     try {
       const [origResult, newResult] = await Promise.all([
-        resolveSymbol(origValue),
-        resolveSymbol(newValue),
+        resolveSymbol(files, type, oldValue),
+        resolveSymbol(files, type, nextValue),
       ])
 
       if (!origResult) {
-        setError(`Could not find ${symbolType} "${origValue}" (old).`)
+        setError(`Could not find ${type} "${oldValue}" (old).`)
         return
       }
       if (!newResult) {
-        setError(`Could not find ${symbolType} "${newValue}" (new).`)
+        setError(`Could not find ${type} "${nextValue}" (new).`)
         return
       }
 
@@ -127,53 +123,38 @@ function App() {
     }
   }
 
+  // Always points at the latest render so the long-lived prefill listener sees current state.
+  const prefillRef = useRef<(message: PrefillMessage) => void>(() => {})
+  prefillRef.current = (message) => {
+    const oldValue = message.old ?? origValue
+    const nextValue = message.new ?? newValue
+    setSymbolType(message.symbolType)
+    setOrigValue(oldValue)
+    setNewValue(nextValue)
+    // Compare right away once both sides are known; otherwise wait for the second selection.
+    if (oldValue && nextValue) {
+      void refreshFiles().then((files) =>
+        handleFind(files, message.symbolType, oldValue, nextValue),
+      )
+    }
+  }
+
+  useEffect(() => {
+    const dispose = onPrefill((message) => prefillRef.current(message))
+    void refreshFiles().then(signalReady)
+    return dispose
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, [])
+
   return (
     <div className="app">
-      <header className="toolbar">
-        <h1>Diff Viewer</h1>
-        <div className="toolbar-controls">
-          <label className="toggle">
-            Language
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-            >
-              {LANGUAGES.map((lang) => (
-                <option key={lang} value={lang}>
-                  {lang}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={inline}
-              onChange={(e) => setInline(e.target.checked)}
-            />
-            Inline view
-          </label>
-        </div>
-      </header>
+      <section className="toolbar">
+        <span className="status">
+          {scanning ? 'Scanning…' : `${projectFiles.length} PHP file(s) in workspace`}
+        </span>
 
-      <section className="project-bar">
-        <div className="project-select">
-          <button
-            type="button"
-            onClick={handleSelectProject}
-            disabled={!isDirectoryPickerSupported() || scanning}
-          >
-            {scanning ? 'Scanning…' : 'Select Project Folder'}
-          </button>
-          <span className="project-status">
-            {projectName
-              ? `${projectName} — ${projectFiles.length} PHP file(s)`
-              : 'No project selected (PHP only, for now)'}
-          </span>
-        </div>
-
-        <label className="symbol-input">
-          <span className="symbol-label">Type</span>
+        <label className="field">
+          Type
           <select
             value={symbolType}
             onChange={(e) => setSymbolType(e.target.value as SymbolType)}
@@ -183,8 +164,8 @@ function App() {
           </select>
         </label>
 
-        <div className="symbol-input">
-          <span className="symbol-label">Old</span>
+        <label className="field grow">
+          Old
           <input
             type="text"
             value={origValue}
@@ -192,10 +173,10 @@ function App() {
             onPaste={handleSymbolPaste}
             placeholder={symbolType === 'file' ? 'path/to/File.php' : 'functionName'}
           />
-        </div>
+        </label>
 
-        <div className="symbol-input">
-          <span className="symbol-label">New</span>
+        <label className="field grow">
+          New
           <input
             type="text"
             value={newValue}
@@ -203,11 +184,32 @@ function App() {
             onPaste={handleSymbolPaste}
             placeholder={symbolType === 'file' ? 'path/to/File.php' : 'functionName'}
           />
-        </div>
+        </label>
 
-        <button type="button" onClick={handleFind} disabled={finding}>
+        <button type="button" onClick={() => handleFind()} disabled={finding}>
           {finding ? 'Finding…' : 'Compare'}
         </button>
+
+        <span className="spacer" />
+
+        <label className="field">
+          Language
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {LANGUAGES.map((lang) => (
+              <option key={lang} value={lang}>
+                {lang}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <input
+            type="checkbox"
+            checked={inline}
+            onChange={(e) => setInline(e.target.checked)}
+          />
+          Inline view
+        </label>
       </section>
 
       {error && <div className="error-banner">{error}</div>}
@@ -218,30 +220,21 @@ function App() {
           language={language}
           original={originalRef.current}
           modified={modifiedRef.current}
-          theme="diff-viewer-dark"
-          beforeMount={(monaco) => {
-            // Diff colors live here, not in CSS. Edit these to restyle diff highlighting.
-            monaco.editor.defineTheme('diff-viewer-dark', {
-              base: 'vs-dark',
-              inherit: true,
-              rules: [],
-              colors: {
-                'diffEditor.insertedLineBackground': hsla(60, 100, 50, 0.05),
-                'diffEditor.removedLineBackground': hsla(0, 100, 50, 0.15),
-                'diffEditor.insertedTextBackground': hsla(120, 100, 50, 0.15),
-                'diffEditor.removedTextBackground': hsla(0, 100, 50, 0.25),
-                'editor.selectionBackground': '#ffff003c',
-                'diffEditor.diagonalFill': hsla(0, 0, 25, 1),
-              },
-            })
-          }}
+          theme={THEME_NAME}
+          beforeMount={applyTheme}
           options={{
             renderSideBySide: !inline,
             diffAlgorithm: 'advanced',
             originalEditable: true,
             automaticLayout: true,
+            ...editorFont(),
           }}
-          onMount={(editor) => {
+          onMount={(editor, monaco) => {
+            watchTheme(() => {
+              applyTheme(monaco)
+              editor.getOriginalEditor().updateOptions(editorFont())
+              editor.getModifiedEditor().updateOptions(editorFont())
+            })
             diffEditorRef.current = editor
             const originalEditor = editor.getOriginalEditor()
             const modifiedEditor = editor.getModifiedEditor()
